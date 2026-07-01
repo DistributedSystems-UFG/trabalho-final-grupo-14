@@ -85,288 +85,203 @@ smartbuilding/
 ---
 
 ## 🛠️ Como Executar o Projeto Localmente
+## Pré-requisitos
 
-### Pré-requisitos
-- **Git** instalado (para clonar/atualizar o projeto).
-- **Python 3.10+** instalado (usado pelo launcher `run.py` e pelo menu `start.py`).
-- **Docker** + **Docker Compose** instalados e funcionando.
-- **PHP 8.1+** instalado localmente apenas se for executar sensores fora do Docker (`sensors/sensor.php`).
+1. Git instalado.
+2. Python 3.10+ instalado.
+3. Docker e Docker Compose funcionando.
+4. PHP 8.1+ apenas se quiser rodar sensores fora do Docker.
 
-#### Docker por sistema operacional
+## Instalação rápida de dependências
 
-1. **Windows 10/11**
-1. Instale o **Docker Desktop**.
-2. Habilite **WSL2** e **Virtual Machine Platform**.
-3. No Docker Desktop, ative integracao com sua distro WSL.
-4. Valide com:
+### Windows 10/11
 
-```bash
-docker --version
-docker compose version
-docker run hello-world
-```
-
-2. **macOS (Intel/Apple Silicon)**
-1. Instale o **Docker Desktop for Mac** (versao correta para seu chip).
-2. Abra o Docker Desktop e conclua as permissoes iniciais.
-3. Valide com:
+1. Instale Docker Desktop.
+2. Ative WSL2.
+3. Valide:
 
 ```bash
 docker --version
 docker compose version
 docker run hello-world
+python --version
 ```
 
-3. **Linux (Ubuntu/Debian)**
-1. Instale Docker de forma rapida com o script oficial:
+### macOS
+
+1. Instale Docker Desktop (Intel/Apple Silicon).
+2. Valide:
 
 ```bash
+docker --version
+docker compose version
+docker run hello-world
+python3 --version
+```
+
+### Linux (Ubuntu/Debian)
+
+1. Instale Docker e Python:
+
+```bash
+sudo apt-get update -y
+sudo apt-get install -y git python3 python3-pip
 curl -fsSL https://get.docker.com | sh
-```
-
-2. Permita executar Docker sem `sudo`:
-
-```bash
 sudo usermod -aG docker $USER
 newgrp docker
 ```
 
-3. Valide instalacao:
+2. Valide:
 
 ```bash
 docker --version
 docker compose version
 docker run hello-world
+python3 --version
 ```
 
-#### Validacao minima antes de subir o projeto
+## Execução local (1 máquina)
+
+1. Entre na pasta do projeto e prepare variáveis:
 
 ```bash
-python3 --version
-docker --version
-docker compose version
+cd smartbuilding
+cp .env.example .env
 ```
 
-Se os 3 comandos acima responderem corretamente, o ambiente esta pronto para o `python run.py`.
+2. Suba tudo:
 
-### Launcher por Sistema Operacional (novo)
-Use o launcher principal abaixo, que detecta o sistema operacional e chama o executor correto:
+```bash
+docker compose up -d --build
+```
+
+3. Acesse a dashboard:
+
+```text
+http://localhost:8000/index.html
+```
+
+4. Se quiser iniciar sensores localmente fora do Docker:
 
 ```bash
 python3 run.py
 ```
 
-No primeiro uso, se `.env` nao existir, o executor cria automaticamente a partir de `.env.example`.
-Depois disso, edite o `.env` com os hosts/ports do seu ambiente local ou EC2.
+## Execução em 3 EC2 (simples e direta)
 
-### Passo 1: Subir a Infraestrutura e Serviços
-Na pasta raiz do projeto (`smartbuilding/`), execute:
-```bash
-docker-compose up --build
-```
-Isso iniciará:
-1. **RabbitMQ** na porta `5672` (painel administrativo em `http://localhost:15672` - guest/guest).
-2. **Redis** na porta `6379`.
-3. **MySQL Primary** na porta `3306` (com carga automática de `schema.sql`).
-4. **MySQL Replica** na porta `3307` (conectado à rede interna).
-5. **Servidor Swoole** nas portas `8000` (HTTP) e `9502` (WebSocket).
-6. **Worker Python** que se conectará automaticamente ao RabbitMQ e MySQL.
+Topologia:
+1. ec2-app: `swoole-server`
+2. ec2-worker: `python-worker`
+3. ec2-data: `rabbitmq`, `redis`, `mysql-primary`, `mysql-replica`
 
-## ⚙️ Configuração de Variáveis (.env) para AWS EC2
+### 1) Rede entre máquinas (Security Groups)
 
-Padronize todas as configuracoes em um unico arquivo `.env` na raiz de `smartbuilding/`.
+1. ec2-app (pública): liberar `22`, `8000`, `9502`.
+2. ec2-worker (privada): liberar `22`.
+3. ec2-data (privada): liberar de ec2-app e ec2-worker as portas `5672`, `15672` (opcional), `6379`, `3306`, `3307`.
+4. Não abrir portas de dados para `0.0.0.0/0`.
 
-1. Copie o template:
+### 2) Preparar projeto em cada EC2
 
-```bash
-cp .env.example .env
-```
-
-2. Em EC2, ajuste principalmente:
-- `BACKEND_HTTP_HOST` e `BACKEND_WS_HOST` com DNS publico ou IP publico da instância.
-- `RABBITMQ_HOST`, `REDIS_HOST`, `MYSQL_PRIMARY_HOST` para o endpoint que o cliente local vai usar.
-- `MYSQL_*`, `RABBITMQ_*` para credenciais reais (evite defaults em producao).
-
-3. Se tudo estiver no mesmo `docker-compose`, mantenha os valores `*_INTERNAL` com os nomes de servico (`rabbitmq`, `redis`, `mysql-primary`, `mysql-replica`).
-
-4. Abra no Security Group apenas as portas necessarias:
-- 8000 (HTTP API)
-- 9502 (WebSocket)
-- 5672/15672 (RabbitMQ, somente se realmente precisar externo)
-- 6379 (Redis, preferencialmente privado)
-- 3306/3307 (MySQL, preferencialmente privado)
-
-Recomendacao: em EC2, exponha publicamente apenas `8000` e `9502`; mantenha banco, redis e broker em rede privada/VPC.
-
-## ☁️ AWS EC2 (instâncias já criadas): instalação e rede
-
-Esta secao cobre o passo a passo do que instalar e como configurar comunicacao interna entre maquinas e acesso externo seguro.
-
-### Topologia recomendada
-
-Opcao A (3 EC2, mais simples):
-1. `ec2-app`: Swoole (HTTP + WebSocket) e dashboard.
-2. `ec2-worker`: Python worker e sensores (quando quiser gerar carga remota).
-3. `ec2-data`: RabbitMQ, Redis, MySQL primary e MySQL replica.
-
-Opcao B (6 EC2, mais isolada):
-1. `ec2-app`
-2. `ec2-worker`
-3. `ec2-rabbitmq`
-4. `ec2-redis`
-5. `ec2-mysql-primary`
-6. `ec2-mysql-replica`
-
-### 1) Instalar dependencias em cada instancia
-
-Comandos para Ubuntu 22.04/24.04:
-
-```bash
-sudo apt-get update -y
-sudo apt-get install -y ca-certificates curl gnupg lsb-release git
-
-# Docker
-sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-  $(. /etc/os-release && echo $VERSION_CODENAME) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-sudo apt-get update -y
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-
-sudo usermod -aG docker $USER
-newgrp docker
-
-# Python launcher
-sudo apt-get install -y python3 python3-pip
-```
-
-### 2) Security Groups (acesso entre máquinas e externo)
-
-Use dois grupos:
-
-1. `sg-app-public` (para `ec2-app`)
-1. Inbound externo: `8000/tcp` (API), `9502/tcp` (WebSocket), `22/tcp` (SSH do seu IP).
-2. Outbound: liberado para VPC.
-
-2. `sg-data-private` (para data services)
-1. Inbound SOMENTE do SG da aplicacao/worker:
-1. `5672/tcp` RabbitMQ
-2. `15672/tcp` RabbitMQ UI (opcional)
-3. `6379/tcp` Redis
-4. `3306/tcp` MySQL primary
-5. `3307/tcp` MySQL replica (se mapear externo no host)
-2. Sem inbound aberto para `0.0.0.0/0` nessas portas.
-
-Se usar 6 EC2, aplique regras por SG de origem (ex.: apenas `sg-app-public` e `sg-worker` podem acessar `sg-data-private`).
-
-### 3) Clonar projeto e preparar variaveis em cada no
-
-Em cada instancia:
+Em cada máquina:
 
 ```bash
 git clone <URL_DO_REPOSITORIO>
-cd s0ftware-concorrente-distribuido/smartbuilding
+cd trabalho-final-grupo-14/smartbuilding
 cp .env.example .env
 ```
 
-Exemplo de `.env` no `ec2-app` (3 EC2):
+Considere este exemplo de IPs privados:
+1. ec2-app: `172.31.10.10`
+2. ec2-worker: `172.31.10.20`
+3. ec2-data: `172.31.10.30`
+
+### 3) Ajustar `.env` por máquina
+
+No ec2-app, defina:
 
 ```env
-BACKEND_HTTP_HOST=<PUBLIC_DNS_EC2_APP>
+BACKEND_HTTP_HOST=<DNS_PUBLICO_EC2_APP>
 BACKEND_HTTP_PORT=8000
-BACKEND_WS_HOST=<PUBLIC_DNS_EC2_APP>
+BACKEND_WS_HOST=<DNS_PUBLICO_EC2_APP>
 BACKEND_WS_PORT=9502
 
-RABBITMQ_HOST=<PRIVATE_IP_EC2_DATA>
-RABBITMQ_PORT=5672
+RABBITMQ_HOST_INTERNAL=172.31.10.30
+RABBITMQ_PORT_INTERNAL=5672
+REDIS_HOST_INTERNAL=172.31.10.30
+REDIS_PORT_INTERNAL=6379
+MYSQL_PRIMARY_HOST_INTERNAL=172.31.10.30
+MYSQL_PRIMARY_PORT_INTERNAL=3306
+MYSQL_REPLICA_HOST_INTERNAL=172.31.10.30
+MYSQL_REPLICA_PORT_INTERNAL=3307
+
+MYSQL_DB=smartbuilding
+MYSQL_USER=sb_user
+MYSQL_PASSWORD=sb_password
 RABBITMQ_USER=guest
 RABBITMQ_PASS=guest
+```
 
-REDIS_HOST=<PRIVATE_IP_EC2_DATA>
-REDIS_PORT=6379
+No ec2-worker, defina:
 
-MYSQL_PRIMARY_HOST=<PRIVATE_IP_EC2_DATA>
-MYSQL_PRIMARY_PORT=3306
-MYSQL_REPLICA_HOST=<PRIVATE_IP_EC2_DATA>
-MYSQL_REPLICA_PORT=3307
+```env
+RABBITMQ_HOST_INTERNAL=172.31.10.30
+RABBITMQ_PORT_INTERNAL=5672
+REDIS_HOST_INTERNAL=172.31.10.30
+REDIS_PORT_INTERNAL=6379
+MYSQL_PRIMARY_HOST_INTERNAL=172.31.10.30
+MYSQL_PRIMARY_PORT_INTERNAL=3306
+
+MYSQL_DB=smartbuilding
+MYSQL_USER=sb_user
+MYSQL_PASSWORD=sb_password
+RABBITMQ_USER=guest
+RABBITMQ_PASS=guest
+```
+
+No ec2-data, defina (mínimo):
+
+```env
 MYSQL_DB=smartbuilding
 MYSQL_USER=sb_user
 MYSQL_PASSWORD=sb_password
 MYSQL_ROOT_PASSWORD=root_password
+RABBITMQ_USER=guest
+RABBITMQ_PASS=guest
 ```
 
-### 4) Subir servicos por no (3 EC2)
+### 4) Subir serviços na ordem correta
 
-1. No `ec2-data` (RabbitMQ/Redis/MySQL):
+No ec2-data:
 
 ```bash
 docker compose up -d rabbitmq redis mysql-primary mysql-replica
 ```
 
-2. No `ec2-app` (Swoole):
+No ec2-app:
 
 ```bash
-docker compose up -d swoole-server
+docker compose up -d --no-deps swoole-server
 ```
 
-3. No `ec2-worker` (Worker Python):
+No ec2-worker:
 
 ```bash
-docker compose up -d python-worker
+docker compose up -d --no-deps python-worker
 ```
 
-4. Sensores (no `ec2-worker` ou local):
+### 5) Acesso e validação
 
-```bash
-python3 run.py
-```
+1. Dashboard: `http://<DNS_PUBLICO_EC2_APP>:8000/index.html`
+2. API: `http://<DNS_PUBLICO_EC2_APP>:8000/api/salas`
+3. Verificação de serviços: `docker compose ps` em cada EC2.
+4. Opcional: iniciar sensores no ec2-worker com `python3 run.py`.
 
-### 5) Acesso externo ao dashboard
+## Notas importantes
 
-O arquivo `dashboard/index.html` usa o host do navegador para montar:
-1. WebSocket: `ws://<host>:9502`
-2. API: `http://<host>:8000`
-
-Entao abra no navegador com o host publico da `ec2-app`.
-Exemplo:
-1. `http://<PUBLIC_DNS_EC2_APP>:8000` (API)
-2. `ws://<PUBLIC_DNS_EC2_APP>:9502` (WS)
-
-### 6) Checklist rapido de validacao
-
-1. `docker ps` em cada no para confirmar containers ativos.
-2. `curl http://<PUBLIC_DNS_EC2_APP>:8000/api/salas` retorna JSON.
-3. RabbitMQ UI abre em `http://<PRIVATE_OR_BASTION>:15672` (se habilitado).
-4. Ao iniciar sensores, aparecem leituras no log do worker e atualizacao em tempo real no dashboard.
-
-### 7) Recomendacoes de seguranca para uso externo
-
-1. Nao exponha MySQL, Redis e RabbitMQ publicamente.
-2. Restrinja SSH para seu IP fixo.
-3. Use TLS no balanceador/proxy para HTTP/WS em producao.
-4. Troque credenciais default (`guest/guest`, `sb_password`, `root_password`).
-5. Considere mover MySQL para RDS e Redis para ElastiCache em ambiente final.
-
-### Passo 2: Acessar o Dashboard
-Abra seu navegador no arquivo `smartbuilding/dashboard/index.html`. 
-- Ele se conectará ao servidor WebSocket (`ws://localhost:9502`).
-- Você verá o status no cabeçalho mudar para **Conectado** (verde pulsante).
-
-### Passo 3: Iniciar a Simulação dos Sensores
-Abra um terminal no host local e navegue até `smartbuilding/sensors/`.
-
-**No Windows (PowerShell):**
-```powershell
-.\run_sensors.ps1 -NumSensors 8 -Interval 3
-```
-
-**No Linux/macOS (Bash):**
-```bash
-chmod +x run_sensors.sh
-./run_sensors.sh 8 3
-```
-Isso simulará 8 sensores de salas diferentes enviando dados concorrentemente a cada 3 segundos.
+1. O front usa o host da URL para montar API e WebSocket automaticamente.
+2. Para exposição pública segura, prefira publicar apenas `8000` e `9502`.
+3. Troque credenciais padrão antes de ambiente real.
 
 ---
 

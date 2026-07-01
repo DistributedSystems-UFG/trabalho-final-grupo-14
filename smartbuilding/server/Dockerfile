@@ -1,11 +1,23 @@
 FROM phpswoole/swoole:5.0-php8.1
 
 # Install system dependencies and PHP extensions
-RUN apt-get update && apt-get install -y \
-    libzip-dev \
-    zip \
-    && docker-php-ext-install pdo pdo_mysql sockets \
-    && rm -rf /var/lib/apt/lists/*
+RUN set -eux; \
+    if command -v apt-get >/dev/null 2>&1; then \
+        apt-get update; \
+        apt-get install -y --no-install-recommends libzip-dev zip; \
+        rm -rf /var/lib/apt/lists/*; \
+    elif command -v apk >/dev/null 2>&1; then \
+        apk add --no-cache libzip-dev zip; \
+    else \
+        echo "No supported package manager found (apt-get/apk)."; \
+        exit 1; \
+    fi; \
+    if command -v docker-php-ext-install >/dev/null 2>&1; then \
+        docker-php-ext-install pdo_mysql; \
+    else \
+        echo "docker-php-ext-install not available in base image."; \
+        exit 1; \
+    fi
 
 WORKDIR /var/www
 
