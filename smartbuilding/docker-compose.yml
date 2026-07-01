@@ -1,0 +1,152 @@
+version: '3.8'
+
+services:
+  # RabbitMQ Message Broker
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: smartbuilding-rabbitmq
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"     # AMQP protocol
+      - "${RABBITMQ_UI_PORT:-15672}:15672" # Management UI
+    volumes:
+      - ./infra/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+      - ./infra/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    networks:
+      - smartbuilding-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis In-Memory Database (Real-time states)
+  redis:
+    image: redis:7.0-alpine
+    container_name: smartbuilding-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - smartbuilding-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MySQL Primary Database (Writes)
+  mysql-primary:
+    image: mysql:8.0
+    container_name: smartbuilding-mysql-primary
+    command: --server-id=1 --log-bin=mysql-bin --binlog-format=ROW
+    ports:
+      - "${MYSQL_PRIMARY_PORT:-3306}:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_password}
+      MYSQL_DATABASE: ${MYSQL_DB:-smartbuilding}
+      MYSQL_USER: ${MYSQL_USER:-sb_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-sb_password}
+    volumes:
+      - mysql-primary-data:/var/lib/mysql
+      - ./infra/mysql/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    networks:
+      - smartbuilding-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot_password"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MySQL Replica Database (Reads)
+  mysql-replica:
+    image: mysql:8.0
+    container_name: smartbuilding-mysql-replica
+    command: --server-id=2 --read-only=ON
+    ports:
+      - "${MYSQL_REPLICA_PORT:-3307}:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_password}
+      MYSQL_DATABASE: ${MYSQL_DB:-smartbuilding}
+      MYSQL_USER: ${MYSQL_USER:-sb_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-sb_password}
+    volumes:
+      - mysql-replica-data:/var/lib/mysql
+    networks:
+      - smartbuilding-network
+    depends_on:
+      - mysql-primary
+
+  # PHP + Swoole Server (EC2-1 / Main API and WebSockets)
+  swoole-server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: smartbuilding-swoole-server
+    ports:
+      - "${BACKEND_HTTP_PORT:-8000}:8000"   # HTTP API
+      - "${BACKEND_WS_PORT:-9502}:9502"     # WebSocket
+    volumes:
+      - ./server:/var/www
+      - /var/www/vendor
+      - ./dashboard:/var/dashboard
+
+    environment:
+      - REDIS_HOST=${REDIS_HOST_INTERNAL:-redis}
+      - REDIS_PORT=${REDIS_PORT_INTERNAL:-6379}
+      - MYSQL_PRIMARY_HOST=${MYSQL_PRIMARY_HOST_INTERNAL:-mysql-primary}
+      - MYSQL_PRIMARY_PORT=${MYSQL_PRIMARY_PORT_INTERNAL:-3306}
+      - MYSQL_REPLICA_HOST=${MYSQL_REPLICA_HOST_INTERNAL:-mysql-replica}
+      - MYSQL_REPLICA_PORT=${MYSQL_REPLICA_PORT_INTERNAL:-3306}
+      - MYSQL_USER=${MYSQL_USER:-sb_user}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-sb_password}
+      - MYSQL_DB=${MYSQL_DB:-smartbuilding}
+      - RABBITMQ_HOST=${RABBITMQ_HOST_INTERNAL:-rabbitmq}
+      - RABBITMQ_PORT=${RABBITMQ_PORT_INTERNAL:-5672}
+      - RABBITMQ_USER=${RABBITMQ_USER:-guest}
+      - RABBITMQ_PASS=${RABBITMQ_PASS:-guest}
+    networks:
+      - smartbuilding-network
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mysql-primary:
+        condition: service_healthy
+
+  # Python Worker (EC2-3 / Analytics and Anomalies)
+  python-worker:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    container_name: smartbuilding-python-worker
+    volumes:
+      - ./worker:/app
+    environment:
+      - RABBITMQ_HOST=${RABBITMQ_HOST_INTERNAL:-rabbitmq}
+      - RABBITMQ_PORT=${RABBITMQ_PORT_INTERNAL:-5672}
+      - RABBITMQ_USER=${RABBITMQ_USER:-guest}
+      - RABBITMQ_PASS=${RABBITMQ_PASS:-guest}
+      - REDIS_HOST=${REDIS_HOST_INTERNAL:-redis}
+      - REDIS_PORT=${REDIS_PORT_INTERNAL:-6379}
+      - MYSQL_HOST=${MYSQL_PRIMARY_HOST_INTERNAL:-mysql-primary}
+      - MYSQL_USER=${MYSQL_USER:-sb_user}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-sb_password}
+      - MYSQL_DB=${MYSQL_DB:-smartbuilding}
+    networks:
+      - smartbuilding-network
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+networks:
+  smartbuilding-network:
+    driver: bridge
+
+volumes:
+  mysql-primary-data:
+  mysql-replica-data:
+  redis-data:

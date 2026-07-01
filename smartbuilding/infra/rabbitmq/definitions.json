@@ -1,0 +1,82 @@
+{
+  "rabbit_version": "3.9.0",
+  "users": [
+    {
+      "name": "guest",
+      "password_hash": "HfeW0xaDHvvaiMUF0Ksyx0LNg4S2W4VP13d/cGdjETWwEFLW",
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "tags": [
+        "administrator"
+      ]
+    }
+  ],
+  "vhosts": [
+    {
+      "name": "/"
+    }
+  ],
+  "permissions": [
+    {
+      "user": "guest",
+      "vhost": "/",
+      "configure": ".*",
+      "write": ".*",
+      "read": ".*"
+    }
+  ],
+  "parameters": [],
+  "global_parameters": [],
+  "policies": [],
+  "queues": [
+    {
+      "name": "swoole_sensor_queue",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "python_sensor_queue",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "alertas",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    }
+  ],
+  "exchanges": [
+    {
+      "name": "sensor_data_exchange",
+      "vhost": "/",
+      "type": "fanout",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    }
+  ],
+  "bindings": [
+    {
+      "source": "sensor_data_exchange",
+      "vhost": "/",
+      "destination": "swoole_sensor_queue",
+      "destination_type": "queue",
+      "routing_key": "",
+      "arguments": {}
+    },
+    {
+      "source": "sensor_data_exchange",
+      "vhost": "/",
+      "destination": "python_sensor_queue",
+      "destination_type": "queue",
+      "routing_key": "",
+      "arguments": {}
+    }
+  ]
+}

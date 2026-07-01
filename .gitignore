@@ -1,0 +1,38 @@
+# IDE files
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# OS files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Python files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.venv/
+.env
+
+# PHP / Composer files
+vendor/
+composer.lock
+
+# Docker databases data
+.docker-data/
+mysql-primary-data/
+mysql-replica-data/
+redis-data/
+
+projeto_smartbuilding_iot.md
