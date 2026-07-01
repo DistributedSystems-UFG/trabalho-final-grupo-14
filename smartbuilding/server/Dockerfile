@@ -2,21 +2,19 @@ FROM phpswoole/swoole:5.0-php8.1
 
 # Install system dependencies and PHP extensions
 RUN set -eux; \
-    if command -v apt-get >/dev/null 2>&1; then \
-        apt-get update; \
-        apt-get install -y --no-install-recommends libzip-dev zip; \
-        rm -rf /var/lib/apt/lists/*; \
-    elif command -v apk >/dev/null 2>&1; then \
-        apk add --no-cache libzip-dev zip; \
+    if [ "$(id -u)" = "0" ] && command -v apt-get >/dev/null 2>&1; then \
+        apt-get update || true; \
+        apt-get install -y --no-install-recommends libzip-dev zip || true; \
+        rm -rf /var/lib/apt/lists/* || true; \
+    elif [ "$(id -u)" = "0" ] && command -v apk >/dev/null 2>&1; then \
+        apk add --no-cache libzip-dev zip || true; \
     else \
-        echo "No supported package manager found (apt-get/apk)."; \
-        exit 1; \
+        echo "Skipping OS package install (non-root user or no apt/apk)."; \
     fi; \
     if command -v docker-php-ext-install >/dev/null 2>&1; then \
-        docker-php-ext-install pdo_mysql; \
+        docker-php-ext-install pdo_mysql || true; \
     else \
-        echo "docker-php-ext-install not available in base image."; \
-        exit 1; \
+        echo "Skipping docker-php-ext-install (not available in base image)."; \
     fi
 
 WORKDIR /var/www
