@@ -66,13 +66,15 @@ def check_docker():
         pass
     return True
 
-def run_docker_compose(services="", detached=False):
+def run_docker_compose(services="", detached=False, no_deps=False):
     if not check_docker():
         return
     
     cmd = ["docker", "compose", "up"]
     if detached:
         cmd.append("-d")
+    if no_deps:
+        cmd.append("--no-deps")
     cmd.append("--build")
     
     if services:
@@ -279,14 +281,14 @@ def main_menu():
             print("\nDeseja rodar o Servidor Swoole no Docker ou Local?")
             modo = get_input("[d] Docker / [l] Local", "d").lower()
             if modo == "d":
-                run_docker_compose(services="swoole-server")
+                run_docker_compose(services="swoole-server", no_deps=True)
             else:
                 run_swoole_local()
         elif opcao == "4":
             print("\nDeseja rodar o Worker Python no Docker ou Local?")
             modo = get_input("[d] Docker / [l] Local", "d").lower()
             if modo == "d":
-                run_docker_compose(services="python-worker")
+                run_docker_compose(services="python-worker", no_deps=True)
             else:
                 run_worker_local()
         elif opcao == "5":
