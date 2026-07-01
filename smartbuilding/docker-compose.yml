@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # RabbitMQ Message Broker
   rabbitmq:
@@ -140,6 +138,8 @@ services:
       rabbitmq:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      mysql-primary:
         condition: service_healthy
 
 networks:
