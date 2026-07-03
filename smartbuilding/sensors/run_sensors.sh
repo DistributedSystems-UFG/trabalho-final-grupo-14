@@ -6,6 +6,14 @@ cd "$(dirname "$0")"
 NUM_SENSORS=${1:-5}
 INTERVAL=${2:-3}
 
+# Load environment variables from ../.env if it exists
+if [ -f ../.env ]; then
+    export RABBITMQ_HOST=$(grep -E "^RABBITMQ_HOST=" ../.env | cut -d'=' -f2 | tr -d '\r')
+    export RABBITMQ_PORT=$(grep -E "^RABBITMQ_PORT=" ../.env | cut -d'=' -f2 | tr -d '\r')
+    export RABBITMQ_USER=$(grep -E "^RABBITMQ_USER=" ../.env | cut -d'=' -f2 | tr -d '\r')
+    export RABBITMQ_PASS=$(grep -E "^RABBITMQ_PASS=" ../.env | cut -d'=' -f2 | tr -d '\r')
+fi
+
 echo "Starting $NUM_SENSORS simulated sensors in the background..."
 
 # List of room IDs
